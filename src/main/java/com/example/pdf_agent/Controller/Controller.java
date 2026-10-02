@@ -3,6 +3,7 @@ package com.example.pdf_agent.Controller;
 import com.example.pdf_agent.Entites.User;
 import com.example.pdf_agent.Services.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,13 +26,13 @@ public class Controller {
         return userService.register(user);
     }
 
-    @PostMapping("/login")
+    @PostMapping("/login_user")
     public ResponseEntity<String> login(@RequestBody User user) {
         String response = userService.verify(user);
         if(response.equalsIgnoreCase("fail")) {
             return ResponseEntity.status(401).body("Authentication failed!");
         }
-        return ResponseEntity.ok("Authentication successful!");
+        return new ResponseEntity<>(response,HttpStatus.OK);
     }
 
     @PostMapping("/Agent_response")

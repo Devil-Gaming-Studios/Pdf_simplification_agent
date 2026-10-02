@@ -35,13 +35,27 @@ public class JWTService {
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
-    private String generateToken(User user) {
+    public String generateToken(User user) {
         Map<String , Object> claims = new HashMap<>();
         System.out.println(claims);
         return Jwts.builder()
                 .claims()
                 .add(claims)
                 .subject(user.getUsername())
+                .issuedAt(new Date(System.currentTimeMillis()))
+                .expiration(new Date(System.currentTimeMillis() + 60*60*1000))
+                .and()
+                .signWith(getKey())
+                .compact();
+    }
+
+    public String generateToken(String username) {
+        Map<String , Object> claims = new HashMap<>();
+        System.out.println(claims);
+        return Jwts.builder()
+                .claims()
+                .add(claims)
+                .subject(username)
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + 60*60*1000))
                 .and()
