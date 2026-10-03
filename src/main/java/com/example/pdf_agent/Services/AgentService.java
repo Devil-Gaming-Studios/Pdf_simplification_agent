@@ -1,6 +1,7 @@
 package com.example.pdf_agent.Services;
 
 import com.example.pdf_agent.Agents.Agent;
+import com.example.pdf_agent.DB.PDF_Repo;
 import com.example.pdf_agent.Entities.ChatSessions;
 import com.google.adk.agents.BaseAgent;
 import com.google.adk.events.Event;
@@ -21,11 +22,15 @@ public class AgentService {
     private final InMemoryRunner runner;
     private final Runner simplificationRunner;
 
+
+    @Autowired
+    ChatSessionService chatSessionService;
+
     public AgentService(Agent agent)
     {
         BaseAgent llmAgent = agent.initAgent();
         this.runner = new InMemoryRunner(llmAgent);
-        this.simplificationRunner = new Runner(agent.simplificationAgent(),runner.appName(),runner.artifactService(),runner.sessionService());
+        this.simplificationRunner = new Runner(agent.Preprocessing_Agent(),runner.appName(),runner.artifactService(),runner.sessionService());
     }
 
     public void createSession(String userId,String sessionId)
@@ -49,7 +54,7 @@ public class AgentService {
             var session = runner.sessionService()
                     .getSession(runner.appName(), userId, sessionId, Optional.empty()).blockingGet();
 
-            return (String) session.state().get("doc_summary");
+            return (String) session.state().get("doc_simplification");
         }
         catch( Exception e)
         {

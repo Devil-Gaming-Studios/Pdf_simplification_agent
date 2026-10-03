@@ -6,8 +6,10 @@ import com.example.pdf_agent.Entities.ChatSessions;
 import com.example.pdf_agent.Entities.PDF_Entity;
 import com.example.pdf_agent.Entities.User;
 import com.example.pdf_agent.Tools.OCR_Tool;
+import com.example.pdf_agent.Tools.PageText;
 import com.example.pdf_agent.Tools.Text_Extractor;
 import com.nimbusds.openid.connect.sdk.claims.SessionID;
+import net.sourceforge.tess4j.TesseractException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -31,6 +33,12 @@ public class ChatSessionService {
 
     @Autowired
     private Text_Extractor textExtractor;
+
+    @Autowired
+    PdfExtractionService pdfExtractionService;
+
+    @Autowired
+    ChunkService chunkService;
 
     public List<ChatSessions> getAllChats(User user) {
         List<ChatSessions> chatList =  chatSessionRepo.findByUser(user);
@@ -79,14 +87,13 @@ public class ChatSessionService {
         }
     }
 
-    public String savePdf(MultipartFile file,User user, String sessionId) throws IOException
+    public String savePdf(MultipartFile file,User user, String sessionId) throws IOException, TesseractException
     {
             String fileName = file.getOriginalFilename();
             byte[] content = file.getBytes();
-            String OCRContent = ocrTool.ocr_tool(content);
-            String textContent = textExtractor.text_extractor(content);
-
-            String finalContent = OCRContent.length() > textContent.length() ? OCRContent : textContent;
+            List<PageText> pages = pdfExtractionService.extract(content);
+            String finalContent = pdfExtractionService.toTaggedText(pages);
+            chunkService.chunkAndSave(getSessionForUser(sessionId,user), pages);
             PDF_Entity pdfEntity = new PDF_Entity();
             pdfEntity.setFileName(fileName);
             pdfEntity.setContent(finalContent);
@@ -110,6 +117,6 @@ public class ChatSessionService {
             System.out.println("No PDF found for chat session with ID: " + sessionId);
             return null;
         }
-        return pdfEntity.getContent();
+        return pdfEntity.getFileName() +  pdfEntity.getContent();
     }
 }

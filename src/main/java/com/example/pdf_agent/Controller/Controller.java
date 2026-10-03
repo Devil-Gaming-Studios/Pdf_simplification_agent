@@ -7,6 +7,7 @@ import com.example.pdf_agent.Services.AgentService;
 import com.example.pdf_agent.Services.ChatSessionService;
 import com.example.pdf_agent.Services.MessageService;
 import com.example.pdf_agent.Services.UserService;
+import com.example.pdf_agent.Tools.PageText;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -195,7 +196,7 @@ public class Controller {
 
         try {
             chatSessionService.savePdf(file, user, sessionId);
-        } catch (IOException e) {
+        } catch (Exception e) {
             System.err.println("Error during PDF upload: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error uploading PDF: " + e.getMessage());
         }
@@ -206,6 +207,7 @@ public class Controller {
         }
 
         String pdfContent = chatSessionService.getPdfContent(sessionId, user);
+
         agentService.setPdfContent(user.getId().toString(), sessionId, pdfContent);
         return ResponseEntity.ok(pdfContent.substring(0, 100));
     }
