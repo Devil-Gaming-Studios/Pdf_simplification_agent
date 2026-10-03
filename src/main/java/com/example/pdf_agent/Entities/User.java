@@ -1,4 +1,4 @@
-package com.example.pdf_agent.Entites;
+package com.example.pdf_agent.Entities;
 
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -17,7 +17,9 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
+    @Column(unique = true)
     private String username;
+
     private String email;
     private String password;
 

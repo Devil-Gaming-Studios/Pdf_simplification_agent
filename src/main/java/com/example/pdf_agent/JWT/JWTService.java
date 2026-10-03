@@ -1,6 +1,6 @@
 package com.example.pdf_agent.JWT;
 
-import com.example.pdf_agent.Entites.User;
+import com.example.pdf_agent.Entities.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;

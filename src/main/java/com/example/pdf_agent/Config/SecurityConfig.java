@@ -1,7 +1,7 @@
 package com.example.pdf_agent.Config;
 
 import com.example.pdf_agent.DB.UserRepo;
-import com.example.pdf_agent.Entites.User;
+import com.example.pdf_agent.Entities.User;
 import com.example.pdf_agent.JWT.JWTFilter;
 import com.example.pdf_agent.JWT.JWTService;
 import com.example.pdf_agent.Services.MyUserDetailService;
@@ -48,16 +48,17 @@ public class SecurityConfig {
         );
 
         http.httpBasic(Customizer.withDefaults());
+        //http.formLogin(Customizer.withDefaults());
 
         http.oauth2Login(oauth2 -> oauth2
                 .successHandler((req, res, auth) -> {
                     OAuth2User oauth2User = (OAuth2User) auth.getPrincipal();
 
                     // GitHub provides "login", Google provides "email" or "name"
-                    String username = oauth2User.getAttribute("login");
-                    if (username == null) {
-                        username = oauth2User.getAttribute("email");
-                    }
+                    String login = oauth2User.getAttribute("login");
+                    String username = login != null ?
+                            "github_" + login :
+                            "google_" + oauth2User.getAttribute("email");
 
                     String email = oauth2User.getAttribute("email");
 

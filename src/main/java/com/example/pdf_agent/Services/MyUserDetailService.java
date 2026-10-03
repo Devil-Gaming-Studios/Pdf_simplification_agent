@@ -1,7 +1,7 @@
 package com.example.pdf_agent.Services;
 
 import com.example.pdf_agent.DB.UserRepo;
-import com.example.pdf_agent.Entites.User;
+import com.example.pdf_agent.Entities.User;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;

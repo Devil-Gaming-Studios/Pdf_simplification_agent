@@ -1,6 +1,6 @@
 package com.example.pdf_agent.Services;
 
-import com.example.pdf_agent.Entites.User;
+import com.example.pdf_agent.Entities.User;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;

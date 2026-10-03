@@ -1,14 +1,18 @@
 package com.example.pdf_agent.Services;
 
 import com.example.pdf_agent.DB.UserRepo;
-import com.example.pdf_agent.Entites.User;
+import com.example.pdf_agent.Entities.User;
 import com.example.pdf_agent.JWT.JWTService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Optional;
 
 @Service
 public class UserService {
@@ -24,7 +28,10 @@ public class UserService {
 
     private BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(12);
 
-    public User register(User user) {
+    public User register(User user) throws ResponseStatusException {
+        if (userRepo.findByUsername(user.getUsername()) != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Username already taken");
+        }
         user.setPassword(passwordEncoder.encode(user.getPassword()));
         System.out.println("Registering: " + user.getUsername() + " | Password: " + user.getPassword());
         return userRepo.save(user);
@@ -45,5 +52,19 @@ public class UserService {
             e.printStackTrace();
         }
         return "fail";
+    }
+
+    public User getUserByUsername(String username)
+    {
+        User user  = userRepo.findByUsername(username);
+        if(user != null)
+        {
+            return user;
+        }
+        else
+        {
+            System.out.println("User not found with username: " + username);
+            return null;
+        }
     }
 }

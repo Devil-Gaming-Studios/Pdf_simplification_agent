@@ -1,4 +1,4 @@
-package com.example.pdf_agent.Entites;
+package com.example.pdf_agent.Entities;
 
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -8,6 +8,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import java.util.List;
 
 @Entity
 @Getter
@@ -33,4 +34,7 @@ public class ChatSessions {
     @ManyToOne
     @JoinColumn(name = "user_id")
     private User user;
+
+    @OneToMany(mappedBy = "chatSession", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Messages> messages;
 }
