@@ -28,7 +28,7 @@ public class AgentService {
 
     public AgentService(Agent agent)
     {
-        BaseAgent llmAgent = agent.initAgent();
+        BaseAgent llmAgent = agent.Postprocessing_Agent();
         this.runner = new InMemoryRunner(llmAgent);
         this.simplificationRunner = new Runner(agent.Preprocessing_Agent(),runner.appName(),runner.artifactService(),runner.sessionService());
     }

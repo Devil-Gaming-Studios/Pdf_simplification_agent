@@ -17,8 +17,15 @@ public class Agent {
     @Autowired
     PreProcessingAgent preProcessingAgent;
 
+    @Autowired
+    PostProcessingAgent postProcessingAgent;
+
     public BaseAgent Preprocessing_Agent()
     {
         return preProcessingAgent.PreProcessing_Agent();
+    }
+
+    public BaseAgent Postprocessing_Agent(){
+        return postProcessingAgent.PostProcessing_Agent();
     }
 }
