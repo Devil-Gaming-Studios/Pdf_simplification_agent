@@ -19,4 +19,6 @@ public class Chunk {
     private int page;
     private int chunkIndex;
     @Column(columnDefinition = "TEXT") private String text;
+
+    @Column(columnDefinition = "LONGTEXT") private String embedding;
 }

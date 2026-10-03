@@ -16,6 +16,9 @@ public class ChunkService {
     @Autowired
     ChunkRepo chunkRepo;
 
+    @Autowired
+    EmbeddingService embeddingService;
+
     @Transactional
     public List<Chunk> chunkAndSave(ChatSessions session, List<PageText> pages) {
         chunkRepo.deleteByChatSession(session);          // re-upload replaces old chunks
@@ -28,6 +31,7 @@ public class ChunkService {
                 c.setPage(p.page());
                 c.setChunkIndex(idx++);
                 c.setText(piece);
+                c.setEmbedding(EmbeddingService.toStr(embeddingService.embed(piece)));
                 out.add(c);
             }
         }

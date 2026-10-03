@@ -220,7 +220,7 @@ public class Controller {
         }
         agentService.createSession(user.getId().toString(), sessionId);
         try {
-            String result = agentService.startChat(user.getId().toString(),sessionId);
+            String result = agentService.startChat(chatSessionService.getSessionForUser(sessionId,user));
             return new ResponseEntity<>(result,HttpStatus.OK);
         }catch(Exception e)
         {

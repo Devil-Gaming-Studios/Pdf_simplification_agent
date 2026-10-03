@@ -4,6 +4,7 @@ import com.example.pdf_agent.Models.Ollama_model;
 import com.google.adk.agents.BaseAgent;
 import com.google.adk.agents.LlmAgent;
 import com.google.adk.agents.LoopAgent;
+import com.google.adk.agents.SequentialAgent;
 import com.google.adk.models.BaseLlm;
 import com.google.adk.tools.Annotations;
 import com.google.adk.tools.FunctionTool;
@@ -73,11 +74,19 @@ public class PreProcessingAgent {
                 .build();
     }
 
-    public BaseAgent PreProcessing_Agent() {
-        return LoopAgent.builder()
-                .name("preprocessing_loop")
-                .subAgents(understandingAgent(), simplificationAgent(), verificationAgent())
-                .maxIterations(3)   // hard stop if it never passes
-                .build();
+    // PreProcessingAgent: add formatter, and make the root a SequentialAgent(loop, formatter)
+    public LlmAgent sectionFormatterAgent() {
+        return LlmAgent.builder().name("section_formatter").model(MODEL)
+                .instruction("Using {doc_summary} and {doc_simplification}, output ONLY a JSON array of objects "
+                        + "{\"title\":string,\"pageStart\":int,\"pageEnd\":int,\"originalText\":string,\"simplifiedText\":string,"
+                        + "\"keyTerms\":[string],\"warnings\":[string]}. Take pages from the [Page N] tags in {pdf_text}, copy numbers, "
+                        + "dates, fees and risk warnings exactly, add no facts, no text outside the JSON.")
+                .outputKey("doc_sections").build();
     }
+    public BaseAgent PreProcessing_Agent() {
+        LoopAgent loop = LoopAgent.builder().name("preprocessing_loop")
+                .subAgents(understandingAgent(), simplificationAgent(), verificationAgent()).maxIterations(3).build();
+        return SequentialAgent.builder().name("preprocessing").subAgents(loop, sectionFormatterAgent()).build();
+    }
+
 }

@@ -26,6 +26,10 @@ public class AgentService {
     @Autowired
     ChatSessionService chatSessionService;
 
+    @Autowired
+    SectionService sectionService;
+
+
     public AgentService(Agent agent)
     {
         BaseAgent llmAgent = agent.Postprocessing_Agent();
@@ -44,23 +48,27 @@ public class AgentService {
         PDF_state.put("pdf_text", pdfContent);
         runner.sessionService().createSession(runner.appName(),userId,PDF_state,sessionId);
     }
-    public String startChat(String userId,String sessionId) throws Exception
-    {
-        Content content = Content.fromParts(Part.fromText("Transcribe the document in a simple language for a normal person to understand."));
-        StringBuilder reply = new StringBuilder();
-        try {
-            simplificationRunner.runAsync(userId, sessionId, content).blockingSubscribe();   // outputKey writes doc_summary to state
+    public String startChat(ChatSessions chatSession) throws Exception {
+        String sessionId = chatSession.getSessionID();
+        String userId = chatSession.getUser().getId().toString();
 
-            var session = runner.sessionService()
-                    .getSession(runner.appName(), userId, sessionId, Optional.empty()).blockingGet();
+        Content content = Content.fromParts(Part.fromText("Process this document."));
+        simplificationRunner.runAsync(userId, sessionId, content).blockingSubscribe();
 
-            return (String) session.state().get("doc_simplification");
+        var session = runner.sessionService()
+                .getSession(runner.appName(), userId, sessionId, Optional.empty()).blockingGet();
+
+        String json = (String) session.state().get("doc_sections");
+        if (json != null) {
+            try {
+                sectionService.saveFromJson(chatSession, json);
+            } catch (Exception e) {
+                System.err.println("Section JSON parse failed: " + e.getMessage());   // retry once here if you like
+            }
         }
-        catch( Exception e)
-        {
-            throw e;
-        }
+        return (String) session.state().get("doc_simplification");
     }
+
 
     public String chat(ChatSessions session, String message) throws Exception
     {
