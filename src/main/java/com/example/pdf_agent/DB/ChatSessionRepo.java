@@ -13,8 +13,10 @@ public interface ChatSessionRepo extends JpaRepository<ChatSessions, Long> {
     // Find all chat sessions belonging to a specific logged-in user
     List<ChatSessions> findByUser(User user);
 
+    ChatSessions findById(String sessionId);
+
     // Find a specific session by ID and User (ensures security check)
-    ChatSessions findByIdAndUser(Integer id, User user);
+    ChatSessions findByIdAndUser(String sessionId, User user);
 
 
 }

@@ -37,4 +37,7 @@ public class ChatSessions {
 
     @OneToMany(mappedBy = "chatSession", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Messages> messages;
+
+    @OneToOne(mappedBy = "chatSession")
+    private PDF_Entity pdfEntity;
 }

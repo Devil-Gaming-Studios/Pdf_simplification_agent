@@ -8,9 +8,10 @@ import java.io.File;
 
 @Service
 public class Text_Extractor {
-    public String text_extractor(String path)
+    public String text_extractor(byte[] pdfBytes)
     {
-        try(PDDocument document = PDDocument.load(new File(path));)
+
+        try(PDDocument document = PDDocument.load(pdfBytes);)
         {
             PDFTextStripper stripper = new PDFTextStripper();
 

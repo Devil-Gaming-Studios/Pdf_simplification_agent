@@ -12,9 +12,9 @@ import java.io.IOException;
 
 @Service
 public class OCR_Tool {
-    public String ocr_tool(String path) {
+    public String ocr_tool(byte[] pdfBytes) {
 
-                try(PDDocument document = PDDocument.load(new File(path));)
+                try(PDDocument document = PDDocument.load(pdfBytes);)
                 {
                     PDFRenderer pdfRenderer = new PDFRenderer(document);
                     String result = "";
