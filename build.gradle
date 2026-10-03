@@ -51,6 +51,10 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-security-oauth2-client-test'
 
     implementation 'io.github.cdimascio:dotenv-java:3.0.0'
+
+    implementation 'com.google.adk:google-adk-langchain4j:1.9.0'
+    implementation 'dev.langchain4j:langchain4j-ollama:1.20.1'
+
 }
 
 tasks.named('test') {

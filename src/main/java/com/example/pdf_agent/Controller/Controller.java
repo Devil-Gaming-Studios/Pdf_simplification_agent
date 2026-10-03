@@ -74,10 +74,10 @@ public class Controller {
     @PostMapping("/login_user")
     public ResponseEntity<String> login(@RequestBody User user) {
         String response = userService.verify(user);
-        if(response.equalsIgnoreCase("fail")) {
+        if (response.equalsIgnoreCase("fail")) {
             return ResponseEntity.status(401).body("Authentication failed!");
         }
-        return new ResponseEntity<>(response,HttpStatus.OK);
+        return new ResponseEntity<>(response, HttpStatus.OK);
     }
 
     //request session id when starting a chat session, and then use that session id for subsequent messages in the same session
@@ -92,21 +92,22 @@ public class Controller {
         session.setSessionName("New session");
         session.setSessionID(sessionId);
 
-        agentService.createSession(user.getId().toString(), sessionId);
+        //agentService.createSession(user.getId().toString(), sessionId);
         chatSessionService.saveChatSession(session);
 
         return ResponseEntity.ok(response);
     }
 
     public record ChatRequest(@NotBlank String sessionId,
-                              @NotBlank @Size(max = 4000) String message) {}
+                              @NotBlank @Size(max = 4000) String message) {
+    }
 
     @GetMapping("/Agent_response")
-    public ResponseEntity<Map<String,String>> agentResponse(Authentication auth, @Valid @RequestBody ChatRequest userInput) {
+    public ResponseEntity<Map<String, String>> agentResponse(Authentication auth, @Valid @RequestBody ChatRequest userInput) {
         User user = userService.getUserByUsername(auth.getName());
-        ChatSessions session = chatSessionService.getSessionForUser(userInput.sessionId,user);
-        try{
-            if(session == null) {
+        ChatSessions session = chatSessionService.getSessionForUser(userInput.sessionId, user);
+        try {
+            if (session == null) {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found for user");
             }
         } catch (ResponseStatusException e) {
@@ -115,8 +116,8 @@ public class Controller {
         }
         try {
             String response = agentService.chat(session, userInput.message());
-            Map<String,String> map = new HashMap<>();
-            map.put(session.getSessionID(),response);
+            Map<String, String> map = new HashMap<>();
+            map.put(session.getSessionID(), response);
             return ResponseEntity.ok(map);
         } catch (Exception e) {
             System.err.println("Error during agent response: " + e.getMessage());
@@ -126,8 +127,9 @@ public class Controller {
     }
 
     public record ChatRequest2(@NotBlank String sessionId,
-                              @NotBlank String sessionName,
-                              @NotBlank @Size(max = 4000) String message) {}
+                               @NotBlank String sessionName,
+                               @NotBlank @Size(max = 4000) String message) {
+    }
 
     @PostMapping("/saveSessionChats")
     public ResponseEntity<ChatSessions> saveSessionChats(Authentication auth, @Valid @RequestBody ChatRequest2 userInput) {
@@ -191,11 +193,9 @@ public class Controller {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found");
         }
 
-        try{
+        try {
             chatSessionService.savePdf(file, user, sessionId);
-        }
-        catch(IOException e)
-        {
+        } catch (IOException e) {
             System.err.println("Error during PDF upload: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error uploading PDF: " + e.getMessage());
         }
@@ -206,7 +206,23 @@ public class Controller {
         }
 
         String pdfContent = chatSessionService.getPdfContent(sessionId, user);
+        agentService.setPdfContent(user.getId().toString(), sessionId, pdfContent);
+        return ResponseEntity.ok(pdfContent.substring(0, 100));
+    }
 
-        return ResponseEntity.ok(pdfContent.substring(0,100));
+    @GetMapping("/startChat")
+    public ResponseEntity<String> startChatSession(Authentication auth, @RequestParam("sessionId") String sessionId) {
+        User user = userService.getUserByUsername(auth.getName());
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found");
+        }
+        agentService.createSession(user.getId().toString(), sessionId);
+        try {
+            String result = agentService.startChat(user.getId().toString(),sessionId);
+            return new ResponseEntity<>(result,HttpStatus.OK);
+        }catch(Exception e)
+        {
+            return new ResponseEntity<>(e.toString(),HttpStatus.BAD_REQUEST);
+        }
     }
 }
