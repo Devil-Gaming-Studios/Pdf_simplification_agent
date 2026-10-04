@@ -7,6 +7,7 @@ import com.google.adk.agents.LoopAgent;
 import com.google.adk.agents.SequentialAgent;
 import com.google.adk.models.BaseLlm;
 import com.google.adk.tools.Annotations;
+import com.google.adk.tools.ExitLoopTool;
 import com.google.adk.tools.FunctionTool;
 import com.google.adk.tools.ToolContext;
 import org.springframework.stereotype.Component;
@@ -69,7 +70,7 @@ public class PreProcessingAgent {
                         "Check that every number, percentage, date, fee, condition, qualifier and risk warning is preserved exactly, " +
                         "and that nothing was invented. If everything is correct, call the exit_loop tool. " +
                         "Otherwise do NOT call it; list each problem briefly so the next pass can fix it.")
-                .tools(FunctionTool.create(ExitTool.class, "exitLoop"))
+                .tools(ExitLoopTool.INSTANCE)
                 .outputKey("verification_report")
                 .build();
     }

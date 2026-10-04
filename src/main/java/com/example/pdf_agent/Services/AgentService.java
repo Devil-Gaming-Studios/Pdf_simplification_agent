@@ -31,11 +31,15 @@ public class AgentService {
     SectionService sectionService;
 
 
-    public AgentService(Agent agent)
-    {
-        BaseAgent llmAgent = agent.Postprocessing_Agent();
-        this.runner = new InMemoryRunner(llmAgent);
-        this.simplificationRunner = new Runner(agent.Preprocessing_Agent(),runner.appName(),runner.artifactService(),runner.sessionService());
+    public AgentService(Agent agent) {
+        try {
+            this.runner = new InMemoryRunner(agent.Postprocessing_Agent());
+            this.simplificationRunner = new Runner(agent.Preprocessing_Agent(), runner.appName(),
+                    runner.artifactService(), runner.sessionService());
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     public void createSession(String userId,String sessionId)
@@ -45,9 +49,11 @@ public class AgentService {
 
     public void setPdfContent(String userId,String sessionId, String pdfContent)
     {
-        ConcurrentHashMap<String, Object> PDF_state = new ConcurrentHashMap<>();
-        PDF_state.put("pdf_text", pdfContent);
-        runner.sessionService().createSession(runner.appName(),userId,PDF_state,sessionId);
+        ConcurrentHashMap<String, Object> state = new ConcurrentHashMap<>();
+        state.put("pdf_text", pdfContent);
+        state.put("session_id", sessionId);
+        state.put("verification_report", "none yet");
+        runner.sessionService().createSession(runner.appName(), userId, state, sessionId).blockingGet();
     }
     public String startChat(ChatSessions chatSession) throws Exception {
         String sessionId = chatSession.getSessionID();
