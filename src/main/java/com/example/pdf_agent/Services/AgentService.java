@@ -4,6 +4,7 @@ import com.example.pdf_agent.Agents.Agent;
 import com.example.pdf_agent.DB.PDF_Repo;
 import com.example.pdf_agent.Entities.ChatSessions;
 import com.google.adk.agents.BaseAgent;
+import com.google.adk.agents.RunConfig;
 import com.google.adk.events.Event;
 import com.google.adk.runner.InMemoryRunner;
 import com.google.adk.runner.Runner;
@@ -89,5 +90,14 @@ public class AgentService {
         }
 
         return reply.toString();
+    }
+
+    // 2) AgentService: add these
+    public Flowable<Event> chatStream(ChatSessions s, String message) {
+        RunConfig cfg = RunConfig.builder()
+                .setStreamingMode(RunConfig.StreamingMode.SSE)   // partial token events
+                .build();
+        return runner.runAsync(s.getUser().getId().toString(), s.getSessionID(),
+                Content.fromParts(Part.fromText(message)), cfg);
     }
 }

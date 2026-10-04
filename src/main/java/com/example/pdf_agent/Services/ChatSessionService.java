@@ -5,118 +5,77 @@ import com.example.pdf_agent.DB.PDF_Repo;
 import com.example.pdf_agent.Entities.ChatSessions;
 import com.example.pdf_agent.Entities.PDF_Entity;
 import com.example.pdf_agent.Entities.User;
-import com.example.pdf_agent.Tools.OCR_Tool;
 import com.example.pdf_agent.Tools.PageText;
-import com.example.pdf_agent.Tools.Text_Extractor;
-import com.nimbusds.openid.connect.sdk.claims.SessionID;
 import net.sourceforge.tess4j.TesseractException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 
 @Service
 public class ChatSessionService {
 
-    @Autowired
-    private ChatSessionRepo chatSessionRepo;
-
-    @Autowired
-    private PDF_Repo pdfRepo;
-
-    @Autowired
-    private OCR_Tool ocrTool;
-
-    @Autowired
-    private Text_Extractor textExtractor;
-
-    @Autowired
-    PdfExtractionService pdfExtractionService;
-
-    @Autowired
-    ChunkService chunkService;
+    @Autowired private ChatSessionRepo chatSessionRepo;
+    @Autowired private PDF_Repo pdfRepo;
+    @Autowired private PdfExtractionService pdfExtractionService;
+    @Autowired private ChunkService chunkService;
 
     public List<ChatSessions> getAllChats(User user) {
-        List<ChatSessions> chatList =  chatSessionRepo.findByUser(user);
-        if(chatList.isEmpty()) {
-            System.out.println("No chat sessions found for user: " + user.getUsername());
-        } else {
-            System.out.println("Retrieved " + chatList.size() + " chat sessions for user: " + user.getUsername());
-        }
-        return chatList;
+        return chatSessionRepo.findByUser(user);
     }
 
+    // new session: rejects duplicates
+    public ChatSessions createChatSession(ChatSessions chatSession) {
+        if (chatSession == null || chatSession.getUser() == null)
+            throw new IllegalArgumentException("Invalid chat session or user");
+        if (getSessionForUser(chatSession.getSessionID(), chatSession.getUser()) != null)
+            throw new IllegalStateException("Chat session already exists");
+        return chatSessionRepo.save(chatSession);
+    }
+
+    // update an existing session (rename etc.)
     public ChatSessions saveChatSession(ChatSessions chatSession) {
-        if(chatSession == null || chatSession.getUser() == null) {
-            System.out.println("Invalid chat session or user. Cannot save.");
-            return new ChatSessions(); // Return an empty ChatSessions object to indicate failure
-        }
-
-        if(chatSessionRepo.findByIdAndUser(chatSession.getSessionID() , chatSession.getUser()) != null) {
-            System.out.println("Chat session with ID: " + chatSession.getSessionID() + " already exists for user: " + chatSession.getUser().getUsername());
-            return new ChatSessions(); // Return an empty ChatSessions object to indicate failure
-        }
-
-        ChatSessions savedSession = chatSessionRepo.save(chatSession);
-        if(savedSession == null) {
-            System.out.println("Failed to save chat session for user: " + chatSession.getUser().getUsername());
-            return new ChatSessions(); // Return an empty ChatSessions object to indicate failure
-        } else {
-            System.out.println("Saved chat session with ID: " + savedSession.getSessionID() + " for user: " + savedSession.getUser().getUsername());
-            return savedSession;
-        }
+        if (chatSession == null || chatSession.getUser() == null)
+            throw new IllegalArgumentException("Invalid chat session or user");
+        return chatSessionRepo.save(chatSession);
     }
 
-    public ChatSessions getSessionForUser(String sessionId, User user)
-    {
-        List<ChatSessions> list = getAllChats(user);
-        return list.stream().filter(chatSession -> {return chatSession.getSessionID().equals(sessionId);}).findFirst().orElse(null);
+    // ownership check: returns null if the session is not this user's
+    public ChatSessions getSessionForUser(String sessionId, User user) {
+        if (sessionId == null || user == null) return null;
+        return chatSessionRepo.findByIdAndUser(sessionId, user);
     }
 
     public void deleteChatSession(String sessionId, User user) {
         ChatSessions session = getSessionForUser(sessionId, user);
-        if(session != null) {
-            chatSessionRepo.delete(session);
-            System.out.println("Deleted chat session with ID: " + sessionId + " for user: " + user.getUsername());
-        } else {
-            System.out.println("No chat session found with ID: " + sessionId + " for user: " + user.getUsername());
-        }
+        if (session != null) chatSessionRepo.delete(session);
     }
 
-    public String savePdf(MultipartFile file,User user, String sessionId) throws IOException, TesseractException
-    {
-            String fileName = file.getOriginalFilename();
-            byte[] content = file.getBytes();
-            List<PageText> pages = pdfExtractionService.extract(content);
-            String finalContent = pdfExtractionService.toTaggedText(pages);
-            chunkService.chunkAndSave(getSessionForUser(sessionId,user), pages);
-            PDF_Entity pdfEntity = new PDF_Entity();
-            pdfEntity.setFileName(fileName);
-            pdfEntity.setContent(finalContent);
-            pdfEntity.setChatSession(chatSessionRepo.findByIdAndUser(sessionId, user));
+    public String savePdf(MultipartFile file, User user, String sessionId) throws IOException, TesseractException {
+        ChatSessions session = getSessionForUser(sessionId, user);
+        if (session == null) throw new IllegalArgumentException("Session not found for user");
 
-            pdfRepo.save(pdfEntity);
+        List<PageText> pages = pdfExtractionService.extract(file.getBytes());
+        String taggedText = pdfExtractionService.toTaggedText(pages);
 
-            return finalContent;
+        PDF_Entity pdfEntity = pdfRepo.findByChatSessionId(session);   // reuse the row on re-upload
+        if (pdfEntity == null) pdfEntity = new PDF_Entity();
+        pdfEntity.setFileName(file.getOriginalFilename());             // display only
+        pdfEntity.setContent(taggedText);
+        pdfEntity.setChatSession(session);
+        pdfRepo.save(pdfEntity);
 
+        chunkService.chunkAndSave(session, pages);                      // deletes old chunks first
+        return taggedText;
     }
 
     public String getPdfContent(String sessionId, User user) {
         ChatSessions session = getSessionForUser(sessionId, user);
-        if (session == null) {
-            System.out.println("No chat session found with ID: " + sessionId + " for user: " + user.getUsername());
-            return null;
-        }
+        if (session == null) return null;
 
         PDF_Entity pdfEntity = pdfRepo.findByChatSessionId(session);
-        if (pdfEntity == null) {
-            System.out.println("No PDF found for chat session with ID: " + sessionId);
-            return null;
-        }
-        return pdfEntity.getFileName() +  pdfEntity.getContent();
+        return pdfEntity == null ? null : pdfEntity.getContent();      // tagged text only, no file name
     }
 }

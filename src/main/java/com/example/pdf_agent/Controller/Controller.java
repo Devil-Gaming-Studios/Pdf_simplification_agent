@@ -1,230 +1,202 @@
 package com.example.pdf_agent.Controller;
 
-import com.example.pdf_agent.Entities.ChatSessions;
-import com.example.pdf_agent.Entities.Messages;
-import com.example.pdf_agent.Entities.User;
-import com.example.pdf_agent.Services.AgentService;
-import com.example.pdf_agent.Services.ChatSessionService;
-import com.example.pdf_agent.Services.MessageService;
-import com.example.pdf_agent.Services.UserService;
-import com.example.pdf_agent.Tools.PageText;
+import com.example.pdf_agent.DB.SectionRepo;
+import com.example.pdf_agent.Entities.*;
+import com.example.pdf_agent.Services.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import net.jcip.annotations.NotThreadSafe;
-import org.springframework.security.core.Authentication;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
-import java.util.HashMap;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-
-import static jakarta.ws.rs.core.Response.ok;
+import java.util.UUID;
 
 @RestController
 public class Controller {
 
-    @Autowired
-    private UserService userService;
+    @Autowired private UserService userService;
+    @Autowired private ChatSessionService chatSessionService;
+    @Autowired private MessageService messageService;
+    @Autowired private AgentService agentService;
+    @Autowired private OrchestratorService orchestratorService;
+    @Autowired private PdfRenderService pdfRenderService;
+    @Autowired private SectionRepo sectionRepo;
 
-    @Autowired
-    private ChatSessionService chatSessionService;
+    // ---------- DTOs ----------
+    public record RegisterRequest(@NotBlank String username, @NotBlank String email,
+                                  @NotBlank @Size(min = 8, max = 72) String password) {}
+    public record ChatRequest(@NotBlank String sessionId, @NotBlank @Size(max = 4000) String message) {}
+    public record ChatSessionDto(String sessionId, String sessionName, Instant updatedAt) {}
+    public record MessageDto(String role, String message, Instant createdAt) {}
 
-    @Autowired
-    private MessageService messageService;
+    // ---------- helpers ----------
+    private ChatSessions owned(Authentication auth, String sessionId) {
+        User user = userService.getUserByUsername(auth.getName());
+        return user == null ? null : chatSessionService.getSessionForUser(sessionId, user);
+    }
 
-    @Autowired
-    AgentService agentService;
+    private void saveMessage(ChatSessions session, String role, String text) {
+        Messages m = new Messages();
+        m.setRole(role);
+        m.setMessage(text);
+        m.setChatSession(session);
+        messageService.saveMessage(m);
+    }
 
+    // ---------- public ----------
     @GetMapping("/health")
     public ResponseEntity<String> health() {
         return ResponseEntity.ok("Service is running!");
     }
 
-    @GetMapping("/getAllChats")
-    public ResponseEntity<List<ChatSessions>> getAllChats(Authentication auth) {
-
-        User user = userService.getUserByUsername(auth.getName());
-        if (user == null) {
-            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
-        }
-        List<ChatSessions> chats = chatSessionService.getAllChats(user);
-        return new ResponseEntity<>(chats, HttpStatus.OK);
-    }
-
     @PostMapping("/register")
-    public ResponseEntity<User> register(@RequestBody User user) {
+    public ResponseEntity<Map<String, String>> register(@Valid @RequestBody RegisterRequest req) {
         try {
-            User registeredUser = userService.register(user);
-            return new ResponseEntity<>(registeredUser, HttpStatus.CREATED);
+            User u = new User();
+            u.setUsername(req.username());
+            u.setEmail(req.email());
+            u.setPassword(req.password());          // hashed inside userService.register
+            userService.register(u);
+            return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("message", "registered"));
         } catch (ResponseStatusException e) {
-            System.err.println("Error during registration: " + e.getMessage());
-            return new ResponseEntity<>(new User(), HttpStatus.CONFLICT);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Username already taken"));
         }
-
-
     }
 
     @PostMapping("/login_user")
     public ResponseEntity<String> login(@RequestBody User user) {
         String response = userService.verify(user);
-        if (response.equalsIgnoreCase("fail")) {
+        if (response.equalsIgnoreCase("fail"))
             return ResponseEntity.status(401).body("Authentication failed!");
-        }
-        return new ResponseEntity<>(response, HttpStatus.OK);
+        return ResponseEntity.ok(response);
     }
 
-    //request session id when starting a chat session, and then use that session id for subsequent messages in the same session
-    @GetMapping("/generateSessionId")
-    public ResponseEntity<Map<String, String>> generateSessionId(Authentication auth) {
-        String sessionId = java.util.UUID.randomUUID().toString();
-        HashMap<String, String> response = new HashMap<>();
-        response.put("SessionID", sessionId);
+    // ---------- sessions ----------
+    @GetMapping("/getAllChats")
+    public ResponseEntity<List<ChatSessionDto>> getAllChats(Authentication auth) {
         User user = userService.getUserByUsername(auth.getName());
+        if (user == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(chatSessionService.getAllChats(user).stream()
+                .map(c -> new ChatSessionDto(c.getSessionID(), c.getSessionName(), c.getUpdatedAt()))
+                .toList());
+    }
+
+    @PostMapping("/generateSessionId")
+    public ResponseEntity<Map<String, String>> generateSessionId(Authentication auth) {
+        User user = userService.getUserByUsername(auth.getName());
+        if (user == null) return ResponseEntity.notFound().build();
+        String sessionId = UUID.randomUUID().toString();
+
         ChatSessions session = new ChatSessions();
         session.setUser(user);
         session.setSessionName("New session");
         session.setSessionID(sessionId);
-
-        //agentService.createSession(user.getId().toString(), sessionId);
         chatSessionService.saveChatSession(session);
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(Map.of("sessionId", sessionId));
     }
 
-    public record ChatRequest(@NotBlank String sessionId,
-                              @NotBlank @Size(max = 4000) String message) {
-    }
-
-    @GetMapping("/Agent_response")
-    public ResponseEntity<Map<String, String>> agentResponse(Authentication auth, @Valid @RequestBody ChatRequest userInput) {
-        User user = userService.getUserByUsername(auth.getName());
-        ChatSessions session = chatSessionService.getSessionForUser(userInput.sessionId, user);
-        try {
-            if (session == null) {
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found for user");
-            }
-        } catch (ResponseStatusException e) {
-            System.err.println("Error: " + e.getMessage());
-            return ResponseEntity.ok(Map.of("error", e.getReason()));
-        }
-        try {
-            String response = agentService.chat(session, userInput.message());
-            Map<String, String> map = new HashMap<>();
-            map.put(session.getSessionID(), response);
-            return ResponseEntity.ok(map);
-        } catch (Exception e) {
-            System.err.println("Error during agent response: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
-        }
-
-    }
-
-    public record ChatRequest2(@NotBlank String sessionId,
-                               @NotBlank String sessionName,
-                               @NotBlank @Size(max = 4000) String message) {
-    }
-
-    @PostMapping("/saveSessionChats")
-    public ResponseEntity<ChatSessions> saveSessionChats(Authentication auth, @Valid @RequestBody ChatRequest2 userInput) {
-        ChatSessions sessionChats = chatSessionService.getSessionForUser(userInput.sessionId(), userService.getUserByUsername(auth.getName()));
-        if (sessionChats == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
-        }
-        sessionChats.setSessionName(userInput.sessionName());
-
-        Messages message = new Messages();
-        message.setMessage(userInput.message());
-        message.setRole("User");
-        message.setChatSession(sessionChats);
-
-        messageService.saveMessage(message);
-        return ResponseEntity.ok(sessionChats);
+    @PatchMapping("/updateSessionName")
+    public ResponseEntity<ChatSessionDto> updateSessionName(Authentication auth, @RequestBody Map<String, String> request) {
+        ChatSessions session = owned(auth, request.get("sessionId"));
+        if (session == null) return ResponseEntity.notFound().build();
+        session.setSessionName(request.get("sessionName"));
+        ChatSessions s = chatSessionService.saveChatSession(session);
+        return ResponseEntity.ok(new ChatSessionDto(s.getSessionID(), s.getSessionName(), s.getUpdatedAt()));
     }
 
     @DeleteMapping("/deleteSession")
-    public ResponseEntity<String> deleteSession(Authentication auth, @RequestBody Map<String, String> request) {
-        String sessionId = request.get("sessionId");
-        User user = userService.getUserByUsername(auth.getName());
-        ChatSessions session = chatSessionService.getSessionForUser(sessionId, user);
-        if (session == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Session not found for user");
-        }
-        chatSessionService.deleteChatSession(sessionId, user);
+    public ResponseEntity<String> deleteSession(Authentication auth, @RequestParam String sessionId) {
+        ChatSessions session = owned(auth, sessionId);
+        if (session == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Session not found");
+        chatSessionService.deleteChatSession(sessionId, userService.getUserByUsername(auth.getName()));
         return ResponseEntity.ok("Session deleted successfully");
     }
 
     @GetMapping("/getSessionChats")
-    public ResponseEntity<List<Messages>> getSessionChats(Authentication auth, @RequestBody Map<String, String> request) {
-        String sessionId = request.get("sessionId");
-        User user = userService.getUserByUsername(auth.getName());
-        ChatSessions session = chatSessionService.getSessionForUser(sessionId, user);
-        if (session == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
-        }
-        List<Messages> messages = messageService.getMessagesBySession(session);
-        return ResponseEntity.ok(messages);
+    public ResponseEntity<List<MessageDto>> getSessionChats(Authentication auth, @RequestParam String sessionId) {
+        ChatSessions session = owned(auth, sessionId);
+        if (session == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(messageService.getMessagesBySession(session).stream()
+                .map(m -> new MessageDto(m.getRole(), m.getMessage(), m.getCreatedAt()))
+                .toList());
     }
 
-    @PatchMapping("/updateSessionName")
-    public ResponseEntity<ChatSessions> updateSessionName(Authentication auth, @RequestBody Map<String, String> request) {
-        String sessionId = request.get("sessionId");
-        String newSessionName = request.get("sessionName");
-        User user = userService.getUserByUsername(auth.getName());
-        ChatSessions session = chatSessionService.getSessionForUser(sessionId, user);
-        if (session == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
-        }
-        session.setSessionName(newSessionName);
-        ChatSessions updatedSession = chatSessionService.saveChatSession(session);
-        return ResponseEntity.ok(updatedSession);
-    }
-
+    // ---------- PDF + agents ----------
     @PostMapping("/uploadPDF")
-    public ResponseEntity<String> uploadPDF(Authentication auth, @RequestParam("file") MultipartFile file, @RequestParam("sessionId") String sessionId) {
+    public ResponseEntity<String> uploadPDF(Authentication auth, @RequestParam("file") MultipartFile file,
+                                            @RequestParam("sessionId") String sessionId) {
         User user = userService.getUserByUsername(auth.getName());
-        if (user == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found");
-        }
+        if (user == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found");
+        if (file.isEmpty() || !"application/pdf".equals(file.getContentType()))
+            return ResponseEntity.badRequest().body("Upload a PDF file");
+
+        ChatSessions session = chatSessionService.getSessionForUser(sessionId, user);
+        if (session == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Session not found for user");
 
         try {
-            chatSessionService.savePdf(file, user, sessionId);
+            chatSessionService.savePdf(file, user, sessionId);      // tagged text + chunks
         } catch (Exception e) {
             System.err.println("Error during PDF upload: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error uploading PDF: " + e.getMessage());
-        }
-
-        ChatSessions session = chatSessionService.getSessionForUser(sessionId, user);
-        if (session == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Session not found for user");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error uploading PDF");
         }
 
         String pdfContent = chatSessionService.getPdfContent(sessionId, user);
-
         agentService.setPdfContent(user.getId().toString(), sessionId, pdfContent);
-        return ResponseEntity.ok(pdfContent.substring(0, 100));
+        return ResponseEntity.ok(pdfContent.substring(0, Math.min(100, pdfContent.length())));
     }
 
-    @GetMapping("/startChat")
+    @PostMapping("/startChat")
     public ResponseEntity<String> startChatSession(Authentication auth, @RequestParam("sessionId") String sessionId) {
-        User user = userService.getUserByUsername(auth.getName());
-        if (user == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("User not found");
-        }
-        agentService.createSession(user.getId().toString(), sessionId);
+        ChatSessions session = owned(auth, sessionId);
+        if (session == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Session not found for user");
         try {
-            String result = agentService.startChat(chatSessionService.getSessionForUser(sessionId,user));
-            return new ResponseEntity<>(result,HttpStatus.OK);
-        }catch(Exception e)
-        {
-            return new ResponseEntity<>(e.toString(),HttpStatus.BAD_REQUEST);
+            String result = agentService.startChat(session);        // no createSession: it would wipe pdf_text
+            saveMessage(session, "AGENT", result);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            System.err.println("startChat failed: " + e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Processing failed");
         }
+    }
+
+    @PostMapping("/agent_response")
+    public ResponseEntity<?> agentResponse(Authentication auth, @Valid @RequestBody ChatRequest req) {
+        ChatSessions session = owned(auth, req.sessionId());
+        if (session == null)
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Session not found for user"));
+
+        saveMessage(session, "USER", req.message());                // saved even if the agent fails
+        try {
+            AgentResponse resp = orchestratorService.handleStructured(session, req.message());
+            saveMessage(session, "AGENT", resp.answer());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            System.err.println("Error during agent response: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "Agent failed"));
+        }
+    }
+
+    @GetMapping("/download_pdf")
+    public ResponseEntity<byte[]> downloadPdf(Authentication auth, @RequestParam String sessionId) throws IOException {
+        ChatSessions session = owned(auth, sessionId);
+        if (session == null) return ResponseEntity.notFound().build();
+
+        List<Section> sections = sectionRepo.findByChatSessionOrderByPageStartAsc(session);
+        if (sections.isEmpty()) return ResponseEntity.status(HttpStatus.CONFLICT).build();   // not processed yet
+
+        byte[] pdf = pdfRenderService.render(session.getSessionName(), sections);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"simplified.pdf\"")
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(pdf);
     }
 }

@@ -2,6 +2,7 @@ package com.example.pdf_agent.Agents;
 
 import com.example.pdf_agent.Models.Ollama_model;
 import com.example.pdf_agent.Tools.PdfSearchTool;
+import com.example.pdf_agent.Tools.CalcTool;
 import com.google.adk.agents.BaseAgent;
 import com.google.adk.agents.LlmAgent;
 import com.google.adk.agents.SequentialAgent;
@@ -29,7 +30,7 @@ public class PostProcessingAgent {
                 .instruction("Answer the user's question using ONLY passages from search_pdf, with {doc_summary} for context. "
                         + "Cite the page number from each passage for every factual claim, keep numbers, dates, fees and warnings exactly as written, "
                         + "give no buy/sell/hold advice, and if the document lacks the answer say 'Not found in the document'.")
-                .tools(FunctionTool.create(pdfSearchTool, "searchPdf"))
+                .tools(FunctionTool.create(pdfSearchTool, "searchPdf"), FunctionTool.create(CalcTool.class, "compute"))
                 .outputKey("draft_answer")
                 .build();
     }
