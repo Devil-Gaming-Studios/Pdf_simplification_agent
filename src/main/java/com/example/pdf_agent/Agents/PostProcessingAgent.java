@@ -27,10 +27,10 @@ public class PostProcessingAgent {
                 .name("qa_agent")
                 .model(MODEL)
                 .description("Answers questions about the uploaded document")
-                .instruction("Answer the user's question using ONLY passages from search_pdf, with {doc_summary} for context. "
+                .instruction("Answer the user's question using ONLY passages from search_pdf, with {doc_summary?} for context. "
                         + "Cite the page number from each passage for every factual claim, keep numbers, dates, fees and warnings exactly as written, "
-                        + "give no buy/sell/hold advice, and if the document lacks the answer say 'Not found in the document'."
-                        +"Always call search_pdf with sessionId={session_id}. ")
+                        + "give no buy/sell/hold advice, and if the document lacks the answer say 'Not found in the document'. "
+                        + "Always call search_pdf with sessionId={session_id?}. ")
                 .tools(FunctionTool.create(pdfSearchTool, "searchPdf"), FunctionTool.create(CalcTool.class, "compute"))
                 .outputKey("draft_answer")
                 .build();
@@ -41,9 +41,9 @@ public class PostProcessingAgent {
                 .name("answer_verifier")
                 .model(MODEL)
                 .description("Checks the draft answer against the document")
-                .instruction("Check {draft_answer} against passages from search_pdf. Remove or flag any unsupported claim, "
-                        + "fix any changed number, date, fee or missing qualifier, and output only the final corrected answer with its page citations."
-                        + "Always call search_pdf with sessionId={session_id}. ")
+                .instruction("Check {draft_answer?} against passages from search_pdf. Remove or flag any unsupported claim, "
+                        + "fix any changed number, date, fee or missing qualifier, and output only the final corrected answer with its page citations. "
+                        + "Always call search_pdf with sessionId={session_id?}. ")
                 .tools(FunctionTool.create(pdfSearchTool, "searchPdf"))
                 .outputKey("final_answer")
                 .build();

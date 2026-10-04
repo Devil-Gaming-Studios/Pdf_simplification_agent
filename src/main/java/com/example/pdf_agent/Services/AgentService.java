@@ -49,11 +49,16 @@ public class AgentService {
 
     public void setPdfContent(String userId,String sessionId, String pdfContent)
     {
+        // AgentService.setPdfContent: seed every key the instructions read
         ConcurrentHashMap<String, Object> state = new ConcurrentHashMap<>();
         state.put("pdf_text", pdfContent);
         state.put("session_id", sessionId);
         state.put("verification_report", "none yet");
+        state.put("doc_summary", "");
+        state.put("draft_answer", "");
+        state.put("final_answer", "");
         runner.sessionService().createSession(runner.appName(), userId, state, sessionId).blockingGet();
+        //runner.sessionService().createSession(runner.appName(), userId, state, sessionId).blockingGet();
     }
     public String startChat(ChatSessions chatSession) throws Exception {
         String sessionId = chatSession.getSessionID();
@@ -79,6 +84,7 @@ public class AgentService {
 
     public String chat(ChatSessions session, String message) throws Exception
     {
+        ensureSession(session);
         String sessionId = session.getSessionID();
         String userId = session.getUser().getId().toString();
 
@@ -98,12 +104,19 @@ public class AgentService {
         return reply.toString();
     }
 
-    // 2) AgentService: add these
+
     public Flowable<Event> chatStream(ChatSessions s, String message) {
-        RunConfig cfg = RunConfig.builder()
-                .setStreamingMode(RunConfig.StreamingMode.SSE)   // partial token events
-                .build();
+        ensureSession(s);
         return runner.runAsync(s.getUser().getId().toString(), s.getSessionID(),
-                Content.fromParts(Part.fromText(message)), cfg);
+                Content.fromParts(Part.fromText(message)));
+    }
+
+    private void ensureSession(ChatSessions s) {
+        String userId = s.getUser().getId().toString();
+        var existing = runner.sessionService()
+                .getSession(runner.appName(), userId, s.getSessionID(), Optional.empty()).blockingGet();
+        if (existing != null) return;                                   // still alive
+        String pdf = chatSessionService.getPdfContent(s.getSessionID(), s.getUser());
+        setPdfContent(userId, s.getSessionID(), pdf == null ? "" : pdf); // rebuild from MySQL
     }
 }

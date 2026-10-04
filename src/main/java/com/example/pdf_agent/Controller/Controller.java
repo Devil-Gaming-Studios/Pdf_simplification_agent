@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import tools.jackson.databind.json.JsonMapper;
+import java.util.concurrent.atomic.AtomicReference;
 
 @RestController
 public class Controller {
@@ -32,6 +34,16 @@ public class Controller {
     @Autowired private PdfRenderService pdfRenderService;
     @Autowired private SectionRepo sectionRepo;
     @Autowired private ExecutorService streamExecutor;
+
+    private final JsonMapper mapper = JsonMapper.builder().build();
+
+    private void send(SseEmitter e, String name, String data) {
+        try { e.send(SseEmitter.event().name(name).data(data)); } catch (Exception ignored) {}
+    }
+
+    private void step(SseEmitter e, Map<String, Object> m) {
+        try { send(e, "step", mapper.writeValueAsString(m)); } catch (Exception ignored) {}
+    }
 
     // ---------- DTOs ----------
     public record RegisterRequest(@NotBlank String username, @NotBlank String email,
@@ -208,37 +220,47 @@ public class Controller {
         SseEmitter emitter = new SseEmitter(300_000L);
         ChatSessions session = owned(auth, req.sessionId());
         if (session == null) {
-            try { emitter.send(SseEmitter.event().name("error").data("Session not found")); } catch (IOException ignored) {}
+            send(emitter, "error", "Session not found");
             emitter.complete();
             return emitter;
         }
         saveMessage(session, "USER", req.message());
 
         streamExecutor.submit(() -> {
-            StringBuilder finalText = new StringBuilder();
-            try {
-                emitter.send(SseEmitter.event().name("progress").data("Processing your question..."));
-                agentService.chatStream(session, req.message()).blockingSubscribe(event -> {
-                    boolean partial = event.partial().orElse(false);
-                    String text = event.stringifyContent();
-                    if (partial) {
-                        if (text != null && !text.isBlank())
-                            emitter.send(SseEmitter.event().name("token").data(text));
-                    } else if (event.finalResponse()) {
-                        finalText.append(text);
-                    } else {
-                        emitter.send(SseEmitter.event().name("progress").data(event.author() + " is working..."));
-                    }
-                });
-                String answer = finalText.toString();
-                if (answer.isBlank()) answer = "No response generated.";
-                saveMessage(session, "AGENT", answer);
-                emitter.send(SseEmitter.event().name("answer").data(answer));
+            String[] draft = {""}, verified = {""};
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            send(emitter, "progress", "Processing your question...");
+
+            agentService.chatStream(session, req.message()).blockingSubscribe(event -> {
+                String author = String.valueOf(event.author());
+
+                for (var fc : event.functionCalls())
+                    step(emitter, Map.of("agent", author, "kind", "tool_call",
+                            "name", fc.name().orElse("tool"), "args", fc.args().orElse(Map.of())));
+
+                for (var fr : event.functionResponses())
+                    step(emitter, Map.of("agent", author, "kind", "tool_result",
+                            "name", fr.name().orElse("tool"), "response", fr.response().orElse(Map.of())));
+
+                String text = event.stringifyContent();
+                if (event.finalResponse() && text != null && !text.isBlank()) {
+                    step(emitter, Map.of("agent", author, "kind", "agent_output", "text", text));
+                    if ("answer_verifier".equals(author)) verified[0] = text; else draft[0] = text;
+                }
+            }, failure::set);
+
+            if (failure.get() != null) {
+                System.err.println("Stream failed: " + failure.get());
+                send(emitter, "error", "Agent failed");
                 emitter.complete();
-            } catch (Exception e) {
-                try { emitter.send(SseEmitter.event().name("error").data("Agent failed")); } catch (IOException ignored) {}
-                emitter.complete();
+                return;
             }
+
+            String answer = !verified[0].isBlank() ? verified[0] : draft[0];
+            if (answer.isBlank()) answer = "No response generated.";
+            saveMessage(session, "AGENT", answer);
+            send(emitter, "answer", answer);
+            emitter.complete();
         });
         return emitter;
     }

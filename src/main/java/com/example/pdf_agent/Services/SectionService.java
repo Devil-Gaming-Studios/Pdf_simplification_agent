@@ -12,16 +12,20 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.ArrayList;
 import java.util.List;
 
-// SectionService
 @Service
 public class SectionService {
     @Autowired
     SectionRepo repo;
-    private final JsonMapper mapper = JsonMapper.builder().build();   // tools.jackson.databind.json.JsonMapper
+    private final JsonMapper mapper = JsonMapper.builder().build();
 
     @Transactional
     public List<Section> saveFromJson(ChatSessions session, String json) throws Exception {
-        json = json.replaceAll("(?s)^```(?:json)?\\s*|\\s*```$", "").trim();   // strip markdown fences
+        // keep only the JSON array, dropping any markdown, fences or chatter around it
+        int start = json.indexOf('[');
+        int end = json.lastIndexOf(']');
+        if (start < 0 || end <= start) throw new IllegalArgumentException("Model output has no JSON array");
+        json = json.substring(start, end + 1);
+
         repo.deleteByChatSession(session);
         List<Section> out = new ArrayList<>();
         for (JsonNode n : mapper.readTree(json)) {
