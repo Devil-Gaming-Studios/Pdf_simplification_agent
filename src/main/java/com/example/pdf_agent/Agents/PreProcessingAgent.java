@@ -6,13 +6,8 @@ import com.google.adk.agents.LlmAgent;
 import com.google.adk.agents.LoopAgent;
 import com.google.adk.agents.SequentialAgent;
 import com.google.adk.models.BaseLlm;
-import com.google.adk.tools.Annotations;
 import com.google.adk.tools.ExitLoopTool;
-import com.google.adk.tools.FunctionTool;
-import com.google.adk.tools.ToolContext;
 import org.springframework.stereotype.Component;
-
-import java.util.Map;
 
 @Component
 public class PreProcessingAgent {
@@ -53,14 +48,6 @@ public class PreProcessingAgent {
                 .build();
     }
 
-    public static class ExitTool {
-        @Annotations.Schema(name = "exit_loop", description = "Call only when doc_summary and doc_simplification are fully correct")
-        public static Map<String, Object> exitLoop(ToolContext ctx) {
-            ctx.actions().setEscalate(true);   // tells LoopAgent to stop
-            return Map.of("status", "verified");
-        }
-    }
-
     public LlmAgent verificationAgent() {
         return LlmAgent.builder()
                 .name("verifier")
@@ -75,19 +62,28 @@ public class PreProcessingAgent {
                 .build();
     }
 
-    // PreProcessingAgent: add formatter, and make the root a SequentialAgent(loop, formatter)
+    // Turns the simplification into JSON sections. originalText is NOT requested here:
+    // SectionService fills it from the stored page chunks, which keeps this output small.
     public LlmAgent sectionFormatterAgent() {
-        return LlmAgent.builder().name("section_formatter").model(MODEL)
+        return LlmAgent.builder()
+                .name("section_formatter")
+                .model(MODEL)
+                .description("Formats the simplified document as JSON sections")
                 .instruction("Using {doc_summary} and {doc_simplification}, output ONLY a JSON array of objects "
-                        + "{\"title\":string,\"pageStart\":int,\"pageEnd\":int,\"originalText\":string,\"simplifiedText\":string,"
-                        + "\"keyTerms\":[string],\"warnings\":[string]}. Take pages from the [Page N] tags in {pdf_text}, copy numbers, "
-                        + "dates, fees and risk warnings exactly, add no facts, no text outside the JSON.")
-                .outputKey("doc_sections").build();
-    }
-    public BaseAgent PreProcessing_Agent() {
-        LoopAgent loop = LoopAgent.builder().name("preprocessing_loop")
-                .subAgents(understandingAgent(), simplificationAgent(), verificationAgent()).maxIterations(3).build();
-        return SequentialAgent.builder().name("preprocessing").subAgents(loop, sectionFormatterAgent()).build();
+                        + "{\"title\":string,\"pageStart\":int,\"pageEnd\":int,\"simplifiedText\":string,"
+                        + "\"keyTerms\":[string],\"warnings\":[string]}. "
+                        + "Take pages from the [Page N] tags in {pdf_text}. Copy numbers, dates, fees and risk warnings exactly, "
+                        + "add no facts. Do not start with an agent name or any label such as [simplify_translate]; "
+                        + "do not use markdown fences; the first character of your reply must be '[' and the last must be ']'.")
+                .outputKey("doc_sections")
+                .build();
     }
 
+    public BaseAgent PreProcessing_Agent() {
+        LoopAgent loop = LoopAgent.builder().name("preprocessing_loop")
+                .subAgents(understandingAgent(), simplificationAgent(), verificationAgent())
+                .maxIterations(1).build();
+        return SequentialAgent.builder().name("preprocessing")
+                .subAgents(loop, sectionFormatterAgent()).build();
+    }
 }
