@@ -16,7 +16,10 @@ public class PDF_Entity {
     Integer id;
 
     String fileName;
-    String Content;
+
+    @Lob
+    @Column(name = "content", columnDefinition = "LONGTEXT")
+    private String content;
 
     @OneToOne
     @JoinColumn(name = "session_id")

@@ -45,7 +45,7 @@ public class ChatSessionService {
     // ownership check: returns null if the session is not this user's
     public ChatSessions getSessionForUser(String sessionId, User user) {
         if (sessionId == null || user == null) return null;
-        return chatSessionRepo.findByIdAndUser(sessionId, user);
+        return chatSessionRepo.findBySessionIDAndUser(sessionId, user).orElse(null);
     }
 
     public void deleteChatSession(String sessionId, User user) {
@@ -60,7 +60,7 @@ public class ChatSessionService {
         List<PageText> pages = pdfExtractionService.extract(file.getBytes());
         String taggedText = pdfExtractionService.toTaggedText(pages);
 
-        PDF_Entity pdfEntity = pdfRepo.findByChatSessionId(session);   // reuse the row on re-upload
+        PDF_Entity pdfEntity = pdfRepo.findByChatSession(session);   // reuse the row on re-upload
         if (pdfEntity == null) pdfEntity = new PDF_Entity();
         pdfEntity.setFileName(file.getOriginalFilename());             // display only
         pdfEntity.setContent(taggedText);
@@ -75,7 +75,7 @@ public class ChatSessionService {
         ChatSessions session = getSessionForUser(sessionId, user);
         if (session == null) return null;
 
-        PDF_Entity pdfEntity = pdfRepo.findByChatSessionId(session);
+        PDF_Entity pdfEntity = pdfRepo.findByChatSession(session);
         return pdfEntity == null ? null : pdfEntity.getContent();      // tagged text only, no file name
     }
 }

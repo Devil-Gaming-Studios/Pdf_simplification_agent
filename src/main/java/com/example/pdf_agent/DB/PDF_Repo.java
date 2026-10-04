@@ -7,5 +7,10 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface PDF_Repo extends JpaRepository<PDF_Entity, Integer> {
-    PDF_Entity findByChatSessionId(ChatSessions session);
+
+    // Option A: pass the entity (rename so the name matches the signature)
+    PDF_Entity findByChatSession(ChatSessions session);
+
+    // Option B: pass the id instead
+    // PDF_Entity findByChatSession_Id(Integer sessionId);
 }

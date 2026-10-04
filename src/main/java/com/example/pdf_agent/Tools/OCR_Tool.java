@@ -17,7 +17,7 @@ public class OCR_Tool {
     // OCRs only the given pages (1-based) and returns them flagged as ocr=true
     public List<PageText> ocr_tool(byte[] pdfBytes, List<Integer> pageNumbers) throws IOException, TesseractException {
         Tesseract tesseract = new Tesseract();          // created once, not per page
-        tesseract.setDatapath("tessdata");
+        tesseract.setDatapath("C:\\Users\\Ravi\\IdeaProjects\\PDF_Agent\\src\\main\\java\\com\\example\\pdf_agent\\Tools\\tessdata");
         tesseract.setLanguage("eng");
 
         List<PageText> out = new ArrayList<>();
