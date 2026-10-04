@@ -5,13 +5,13 @@ import com.example.pdf_agent.Entities.User;
 import com.example.pdf_agent.JWT.JWTFilter;
 import com.example.pdf_agent.JWT.JWTService;
 import com.example.pdf_agent.Services.MyUserDetailService;
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -26,60 +26,46 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableWebSecurity
 public class SecurityConfig {
 
-    @Autowired
-    private MyUserDetailService myUserDetailsService;
-
-    @Autowired
-    private JWTFilter jwtFilter;
-
-    @Autowired
-    private JWTService jwtService;
-
-    @Autowired
-    private UserRepo userRepo;
+    @Autowired private MyUserDetailService myUserDetailsService;
+    @Autowired private JWTFilter jwtFilter;
+    @Autowired private JWTService jwtService;
+    @Autowired private UserRepo userRepo;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable());
 
         http.authorizeHttpRequests(request -> request
-                .requestMatchers("/register", "/login", "/login_user", "/oauth2/**", "/login/oauth2/**").permitAll()
+                .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
+                .requestMatchers("/register", "/login", "/login_user", "/health",
+                        "/oauth2/**", "/login/oauth2/**").permitAll()
                 .anyRequest().authenticated()
         );
 
-        http.httpBasic(Customizer.withDefaults());
-        //http.formLogin(Customizer.withDefaults());
+        http.oauth2Login(oauth2 -> oauth2.successHandler((req, res, auth) -> {
+            OAuth2User oauth2User = (OAuth2User) auth.getPrincipal();
 
-        http.oauth2Login(oauth2 -> oauth2
-                .successHandler((req, res, auth) -> {
-                    OAuth2User oauth2User = (OAuth2User) auth.getPrincipal();
+            String login = oauth2User.getAttribute("login");   // GitHub only
+            String username = login != null
+                    ? "github_" + login
+                    : "google_" + oauth2User.getAttribute("sub");
 
-                    // GitHub provides "login", Google provides "email" or "name"
-                    String login = oauth2User.getAttribute("login");
-                    String username = login != null ?
-                            "github_" + login :
-                            "google_" + oauth2User.getAttribute("email");
+            String email = oauth2User.getAttribute("email");
 
-                    String email = oauth2User.getAttribute("email");
+            if (userRepo.findByUsername(username) == null) {
+                User newUser = new User();
+                newUser.setUsername(username);
+                newUser.setEmail(email != null ? email : username + "@oauth.com");
+                newUser.setPassword("");   // OAuth users never log in with a password
+                userRepo.save(newUser);
+            }
 
-                    User existingUser = userRepo.findByUsername(username);
-                    if (existingUser == null) {
-                        User newUser = new User();
-                        newUser.setUsername(username);
-                        newUser.setEmail(email != null ? email : username + "@oauth.com");
-                        newUser.setPassword(""); // Empty password for OAuth users
-                        userRepo.save(newUser);
-                    }
+            String token = jwtService.generateToken(username);
+            res.setContentType("application/json");
+            res.getWriter().write("{\"token\":\"" + token + "\"}");
+        }));
 
-                    String token = jwtService.generateToken(username);
-
-                    res.setContentType("application/json");
-                    res.getWriter().write("{\"token\":\"" + token + "\"}");
-                })
-        );
-
-        http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
-
+        http.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         http.authenticationProvider(authenticationProvider());
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 

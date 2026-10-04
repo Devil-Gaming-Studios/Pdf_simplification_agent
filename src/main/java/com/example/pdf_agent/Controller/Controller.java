@@ -12,12 +12,14 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 
 @RestController
 public class Controller {
@@ -29,6 +31,7 @@ public class Controller {
     @Autowired private OrchestratorService orchestratorService;
     @Autowired private PdfRenderService pdfRenderService;
     @Autowired private SectionRepo sectionRepo;
+    @Autowired private ExecutorService streamExecutor;
 
     // ---------- DTOs ----------
     public record RegisterRequest(@NotBlank String username, @NotBlank String email,
@@ -198,5 +201,45 @@ public class Controller {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"simplified.pdf\"")
                 .contentType(MediaType.APPLICATION_PDF)
                 .body(pdf);
+    }
+
+    @PostMapping(value = "/agent_response_stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter agentResponseStream(Authentication auth, @Valid @RequestBody ChatRequest req) {
+        SseEmitter emitter = new SseEmitter(300_000L);
+        ChatSessions session = owned(auth, req.sessionId());
+        if (session == null) {
+            try { emitter.send(SseEmitter.event().name("error").data("Session not found")); } catch (IOException ignored) {}
+            emitter.complete();
+            return emitter;
+        }
+        saveMessage(session, "USER", req.message());
+
+        streamExecutor.submit(() -> {
+            StringBuilder finalText = new StringBuilder();
+            try {
+                emitter.send(SseEmitter.event().name("progress").data("Processing your question..."));
+                agentService.chatStream(session, req.message()).blockingSubscribe(event -> {
+                    boolean partial = event.partial().orElse(false);
+                    String text = event.stringifyContent();
+                    if (partial) {
+                        if (text != null && !text.isBlank())
+                            emitter.send(SseEmitter.event().name("token").data(text));
+                    } else if (event.finalResponse()) {
+                        finalText.append(text);
+                    } else {
+                        emitter.send(SseEmitter.event().name("progress").data(event.author() + " is working..."));
+                    }
+                });
+                String answer = finalText.toString();
+                if (answer.isBlank()) answer = "No response generated.";
+                saveMessage(session, "AGENT", answer);
+                emitter.send(SseEmitter.event().name("answer").data(answer));
+                emitter.complete();
+            } catch (Exception e) {
+                try { emitter.send(SseEmitter.event().name("error").data("Agent failed")); } catch (IOException ignored) {}
+                emitter.complete();
+            }
+        });
+        return emitter;
     }
 }
