@@ -1,5 +1,6 @@
 package com.example.pdf_agent.Controller;
 
+import com.example.pdf_agent.DB.ChunkRepo;
 import com.example.pdf_agent.DB.SectionRepo;
 import com.example.pdf_agent.Entities.*;
 import com.example.pdf_agent.Services.*;
@@ -16,12 +17,13 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import tools.jackson.databind.json.JsonMapper;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @RestController
 public class Controller {
@@ -34,6 +36,8 @@ public class Controller {
     @Autowired private PdfRenderService pdfRenderService;
     @Autowired private SectionRepo sectionRepo;
     @Autowired private ExecutorService streamExecutor;
+    @Autowired private GuardrailService guardrails;
+    @Autowired private ChunkRepo chunkRepo;
 
     private final JsonMapper mapper = JsonMapper.builder().build();
 
@@ -226,6 +230,16 @@ public class Controller {
         }
         saveMessage(session, "USER", req.message());
 
+        // top of the lambda: decline advice requests before any agent runs
+        if (guardrails.isAdviceRequest(req.message())) {
+            String msg = "I can't give personal buy, sell or hold advice, but I can explain how this product, its risks and fees work.";
+            saveMessage(session, "AGENT", msg);
+            send(emitter, "meta", "{\"sources\":[],\"verificationStatus\":\"DECLINED\",\"warnings\":[]}");
+            send(emitter, "answer", msg);
+            emitter.complete();
+            return null;
+        }
+
         streamExecutor.submit(() -> {
             String[] draft = {""}, verified = {""};
             AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -259,9 +273,47 @@ public class Controller {
             String answer = !verified[0].isBlank() ? verified[0] : draft[0];
             if (answer.isBlank()) answer = "No response generated.";
             saveMessage(session, "AGENT", answer);
+            // before send(emitter, "answer", answer):
+            String pdfText = Optional.ofNullable(chatSessionService.getPdfContent(session.getSessionID(), session.getUser())).orElse("");
+            List<String> warnings = new ArrayList<>(guardrails.ocrWarnings(pdfText));
+            List<String> bad = guardrails.unsupportedNumbers(answer, pdfText);
+            if (!bad.isEmpty()) warnings.add("Some numbers could not be matched to the document: " + bad);
+
+            Set<Integer> pages = new TreeSet<>();
+            Matcher pm = Pattern.compile("(?i)page\\s*(\\d+)").matcher(answer);
+            while (pm.find()) pages.add(Integer.parseInt(pm.group(1)));
+
+            List<Map<String, Object>> sources = chunkRepo
+                    .findByChatSession_SessionIDOrderByPageAscChunkIndexAsc(session.getSessionID()).stream()
+                    .filter(c -> pages.contains(c.getPage()))
+                    .collect(Collectors.toMap(Chunk::getPage, c -> c, (a, b2) -> a, TreeMap::new)).values().stream()
+                    .map(c -> Map.<String, Object>of("page", c.getPage(),
+                            "excerpt", c.getText().substring(0, Math.min(200, c.getText().length()))))
+                    .toList();
+
+            String lower = answer.toLowerCase();
+            String status = lower.contains("not found in the document") ? "INSUFFICIENT_EVIDENCE"
+                    : !bad.isEmpty() ? "FAILED_VERIFICATION" : sources.isEmpty() ? "UNVERIFIED" : "VERIFIED";
+
+            send(emitter, "meta", mapper.writeValueAsString(Map.of("sources", sources,
+                    "verificationStatus", status, "warnings", warnings, "agentTraceId", UUID.randomUUID().toString())));
             send(emitter, "answer", answer);
             emitter.complete();
         });
         return emitter;
     }
+
+    public record SectionDto(String title, int pageStart, int pageEnd, String originalText, String simplifiedText, String warnings) {}
+
+    @GetMapping("/sections")
+    public ResponseEntity<List<SectionDto>> sections(Authentication auth, @RequestParam String sessionId) {
+        ChatSessions session = owned(auth, sessionId);
+        if (session == null) return ResponseEntity.notFound().build();
+        List<Section> list = sectionRepo.findByChatSessionOrderByPageStartAsc(session);
+        if (list.isEmpty()) return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        return ResponseEntity.ok(list.stream().map(s -> new SectionDto(s.getTitle(), s.getPageStart(),
+                s.getPageEnd(), s.getOriginalText(), s.getSimplifiedText(), s.getWarnings())).toList());
+    }
+
+
 }
